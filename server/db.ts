@@ -10,6 +10,11 @@ let pgliteInstance: PGlite | null = null;
 let isConnected = false;
 
 if (process.env.DATABASE_URL) {
+    // Validate DATABASE_URL protocol
+      const isValidPostgresUrl = process.env.DATABASE_URL?.startsWith('postgres://');
+        if (!process.env.DATABASE_URL || !isValidPostgresUrl) {
+            console.warn('Invalid or missing DATABASE_URL protocol. Using PGlite fallback.');
+              }
   const connectionString = process.env.DATABASE_URL;
   activePool = new Pool({
     connectionString,
