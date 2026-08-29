@@ -25,7 +25,12 @@ if (process.env.DATABASE_URL) {
     isConnected = false;
   });
 } else {
-  pgliteInstance = new PGlite('./pgdata');
+  try {
+    pgliteInstance = new PGlite('./pgdata');
+  } catch (err) {
+    console.warn('File-based PGlite init failed, falling back to in-memory PGlite:', err);
+    pgliteInstance = new PGlite();
+  }
   activePool = {
     query: async (text: string, params?: any[]) => {
       return await pgliteInstance!.query(text, params);
