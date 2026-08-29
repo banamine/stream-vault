@@ -33,6 +33,19 @@ app.get('/healthz', async (req: Request, res: Response) => {
   });
 });
 
+// Robust health check endpoint (`GET /api/health`)
+app.get('/api/health', async (req: Request, res: Response) => {
+  const dbConnected = getDbStatus();
+  res.status(200).json({
+    status: 'ok',
+    service: 'stream-vault-api',
+    version: '2.1.0',
+    database: dbConnected ? 'connected' : 'memory-fallback',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Secure Stream Proxy endpoint with HTTPS enforcement, SSRF protection, timeout, and size limits
 app.get('/api/stream-proxy', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
