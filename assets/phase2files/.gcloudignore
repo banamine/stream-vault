@@ -1,0 +1,47 @@
+# Ignore version control
+.git
+.gitignore
+.github
+
+# Ignore dependencies (they will be installed in container)
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Ignore build artifacts (will be rebuilt)
+dist
+.vite
+
+# Ignore local development files
+.env.local
+.env.*.local
+.env
+
+# Ignore editor/IDE config
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ignore test coverage
+coverage
+.nyc_output
+
+# Ignore documentation (optional to deploy)
+*.md
+docs
+
+# Ignore source maps in production (optional)
+*.map
+
+# Development-only files
+tsconfig.json
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+.eslintrc
+eslint.config.js
+.prettierrc
