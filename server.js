@@ -1,6 +1,7 @@
-﻿import express from 'express';
+import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -269,6 +270,155 @@ app.get('/api/stream-proxy', async (req, res) => {
   }
 });
 
+// M3U Playlist Parser Endpoint
+// POST /api/v1/parse-m3u - Parse M3U/M3U8 playlists and extract channels
+app.post('/api/v1/parse-m3u', async (req, res) => {
+  try {
+    const { m3uUrl } = req.body;
+
+    if (!m3uUrl || typeof m3uUrl !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request: m3uUrl is required and must be a string'
+      });
+    }
+
+    // Security: Block private/local URLs to prevent SSRF
+    try {
+      const url = new URL(m3uUrl);
+      const hostname = url.hostname.toLowerCase();
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '0.0.0.0' ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('172.') ||
+        hostname === 'internal' ||
+        hostname.endsWith('.internal')
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access to private networks is blocked (SSRF prevention)'
+        });
+      }
+    } catch {
+      return res.status(400).json({ success: false, error: 'Invalid URL format' });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    try {
+      const response = await fetch(m3uUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return res.status(400).json({
+          success: false,
+          error: `Failed to fetch M3U playlist: ${response.statusText}`
+        });
+      }
+
+      const text = await response.text();
+      const channels = parseM3U(text, m3uUrl);
+
+      return res.json({
+        success: true,
+        channels,
+        sourceUrl: m3uUrl,
+        totalParsed: channels.length,
+        validUrls: channels.filter(c => isValidUrl(c.url)).length,
+        invalidUrls: channels.filter(c => !isValidUrl(c.url)).length,
+        parseErrors: [],
+        fetchedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to parse M3U playlist: ' + errorMsg
+      });
+    }
+  } catch (err) {
+    console.error('❌ /api/v1/parse-m3u error:', err);
+    res.status(500).json({
+      success: false,
+      error: 'M3U parser error',
+      message: String(err)
+    });
+  }
+});
+
+// Helper: Parse M3U playlist format
+function parseM3U(text, baseUrl) {
+  const channels = [];
+  const lines = text.split('\n');
+  let currentTitle = '';
+  let currentCategory = '';
+  let currentLogo = '';
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('#EXTINF:')) {
+      const match = trimmed.match(/tvg-name="([^"]+)"|,(.+)$/);
+      currentTitle = match ? (match[1] || match[2]?.trim() || 'Unknown') : 'Unknown';
+
+      const categoryMatch = trimmed.match(/group-title="([^"]+)"/);
+      currentCategory = categoryMatch ? categoryMatch[1] : 'Other';
+
+      const logoMatch = trimmed.match(/tvg-logo="([^"]+)"/);
+      currentLogo = logoMatch ? logoMatch[1] : '';
+    } else if (!trimmed.startsWith('#') && trimmed && currentTitle) {
+      let url = trimmed;
+      if (!url.startsWith('http')) {
+        try {
+          url = new URL(url, baseUrl).toString();
+        } catch {
+          currentTitle = '';
+          continue;
+        }
+      }
+
+      channels.push({
+        id: hashUrl(url),
+        title: currentTitle,
+        url,
+        category: currentCategory,
+        logo: currentLogo || undefined,
+        fetchedAt: new Date().toISOString()
+      });
+
+      currentTitle = '';
+    }
+  }
+
+  return channels;
+}
+
+// Helper: Validate URL format
+function isValidUrl(urlString) {
+  try {
+    new URL(urlString);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Helper: Hash URL for ID generation
+function hashUrl(url) {
+  return crypto.createHash('md5').update(url).digest('hex').substring(0, 12);
+}
+
 app.listen(PORT, () => {
   console.log('\n' + '='.repeat(70));
   console.log('🎬 AJN BROADCAST MEDIA PLATFORM - PRODUCTION SERVER');
@@ -279,6 +429,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/shows              - List all shows (channels)`);
   console.log(`   GET  /api/episodes/:showId   - Get episodes for a show`);
   console.log(`   GET  /api/stream-proxy       - Proxy external streams with CORS`);
+  console.log(`   POST /api/v1/parse-m3u      - Parse M3U/M3U8 playlists`);
   console.log(`\n📺 Shows Available:`);
   console.log(`   1. The Alex Jones Show       (${AJN_VIDEO_SOURCES['alex-jones-show'].videoUrls.length} videos)`);
   console.log(`   2. War Room with Harrison    (${AJN_VIDEO_SOURCES['war-room'].videoUrls.length} videos)`);
